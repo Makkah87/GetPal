@@ -1,0 +1,1 @@
+Please note that I was asking ChatGPT for help doing this in Photoshop and well, ended up with a pretty neat app instead. 100% ChatGPT generated. I've yet to learn Python but this is definitely making the case for me!
