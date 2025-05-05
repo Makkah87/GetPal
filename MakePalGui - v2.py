@@ -5,15 +5,17 @@ from colorthief import ColorThief
 from collections import Counter
 from PIL import Image, ImageDraw
 
-colors_per_image = 9  # Default value
+colors_per_image = 9
 preview_size = 20
 undo_stack = []
+generated_colors = []
+last_output_file = ""
 
 def rgb_to_hsb(rgb):
     r, g, b = [x / 255.0 for x in rgb]
     return colorsys.rgb_to_hsv(r, g, b)
 
-def show_preview(colors, output_file):
+def show_preview(colors):
     preview = Toplevel()
     preview.title("Palette Preview (click to edit, Ctrl+Z to undo)")
 
@@ -48,34 +50,42 @@ def show_preview(colors, output_file):
             colors[index] = previous_color
             draw_palette()
 
-    def confirm_and_save():
-        with open(output_file, "wb") as f:
-            for color in colors:
-                f.write(bytes(color))
-        messagebox.showinfo("Success", f"Saved .ACT file:\n{output_file}")
-        preview.destroy()
-
-    def export_png():
-        file = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG Image", "*.png")])
-        if not file:
-            return
-        img = Image.new("RGB", (16 * preview_size, 16 * preview_size), color=(255, 255, 255))
-        draw = ImageDraw.Draw(img)
-        for i, color in enumerate(colors):
-            x = (i % 16) * preview_size
-            y = (i // 16) * preview_size
-            draw.rectangle([x, y, x + preview_size, y + preview_size], fill=color, outline=(0, 0, 0))
-        img.save(file)
-        messagebox.showinfo("Saved", f"Palette image saved:\n{file}")
-
     canvas.bind("<Button-1>", on_click)
     preview.bind("<Control-z>", undo)
     draw_palette()
 
-    Button(preview, text="💾 Save .ACT File", command=confirm_and_save, bg="#4CAF50", fg="white").pack(pady=(10, 5))
-    Button(preview, text="🖼️ Export as PNG", command=export_png, bg="#2196F3", fg="white").pack(pady=(0, 10))
+def export_act():
+    if not generated_colors:
+        messagebox.showerror("Nothing to save", "No palette generated yet.")
+        return
+    file = filedialog.asksaveasfilename(defaultextension=".act", filetypes=[("Photoshop ACT", "*.act")])
+    if file:
+        with open(file, "wb") as f:
+            for color in generated_colors:
+                f.write(bytes(color))
+            # Pad to 256 colors if needed
+            while len(generated_colors) < 256:
+                f.write(bytes((0, 0, 0)))
+        messagebox.showinfo("Saved", f"ACT file saved:\n{file}")
 
-def generate_palette(image_folder, output_file, colors_per_image_value):
+def export_png():
+    if not generated_colors:
+        messagebox.showerror("Nothing to export", "No palette generated yet.")
+        return
+    file = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG Image", "*.png")])
+    if not file:
+        return
+    img = Image.new("RGB", (16 * preview_size, 16 * preview_size), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    for i, color in enumerate(generated_colors):
+        x = (i % 16) * preview_size
+        y = (i // 16) * preview_size
+        draw.rectangle([x, y, x + preview_size, y + preview_size], fill=color, outline=(0, 0, 0))
+    img.save(file)
+    messagebox.showinfo("Saved", f"Palette image saved:\n{file}")
+
+def generate_palette(image_folder, colors_per_image_value):
+    global generated_colors
     all_colors = []
 
     for filename in os.listdir(image_folder):
@@ -98,7 +108,8 @@ def generate_palette(image_folder, output_file, colors_per_image_value):
     while len(unique_colors) < 256:
         unique_colors.append((0, 0, 0))
 
-    show_preview(unique_colors, output_file)
+    generated_colors = unique_colors
+    show_preview(generated_colors)
 
 # === GUI Setup ===
 def select_folder():
@@ -107,15 +118,8 @@ def select_folder():
         folder_label.config(text=folder)
         folder_label.folder = folder
 
-def select_output():
-    file = filedialog.asksaveasfilename(defaultextension=".act", filetypes=[("Photoshop ACT", "*.act")])
-    if file:
-        output_label.config(text=file)
-        output_label.output = file
-
 def run_generation():
     folder = getattr(folder_label, 'folder', None)
-    output = getattr(output_label, 'output', None)
     try:
         colors_value = int(color_entry.get())
         if colors_value < 1 or colors_value > 256:
@@ -123,42 +127,44 @@ def run_generation():
     except ValueError:
         messagebox.showerror("Invalid input", "Please enter a number between 1 and 256 for colors per image.")
         return
-    if not folder or not output:
-        messagebox.showerror("Missing info", "Please select both a folder and an output file.")
+    if not folder:
+        messagebox.showerror("Missing info", "Please select an image folder.")
         return
-    generate_palette(folder, output, colors_value)
+    generate_palette(folder, colors_value)
 
+# === Main Window ===
 # === Main Window ===
 root = Tk()
 root.title("PNG to .ACT Palette Generator")
-root.geometry("600x300")  # Nice wide window
+root.geometry("640x360")
 
-# Top frame to arrange folder + output side by side
 top_frame = Frame(root)
 top_frame.pack(pady=10)
 
-# Folder frame
+# Folder frame (aligned top)
 folder_frame = Frame(top_frame)
-folder_frame.pack(side="left", padx=10)
-Label(folder_frame, text="1. Select image folder:").pack(pady=5)
-Button(folder_frame, text="Browse Folder", command=select_folder).pack()
-folder_label = Label(folder_frame, text="No folder selected", wraplength=250)
-folder_label.pack()
+folder_frame.pack(side="left", anchor="n", padx=20)
+Label(folder_frame, text="1. Select image folder:").pack(anchor="w")
+Button(folder_frame, text="Browse Folder", command=select_folder).pack(anchor="w")
+folder_label = Label(folder_frame, text="No folder selected", wraplength=250, justify="left")
+folder_label.pack(anchor="w")
 
-# Output frame
-output_frame = Frame(top_frame)
-output_frame.pack(side="left", padx=10)
-Label(output_frame, text="2. Select output .ACT file:").pack(pady=5)
-Button(output_frame, text="Choose Save Location", command=select_output).pack()
-output_label = Label(output_frame, text="No output selected", wraplength=250)
-output_label.pack()
-
-# Colors per image (bottom)
-Label(root, text="3. Colors per image (1-256):").pack(pady=10)
-color_entry = Entry(root)
+# Color per image frame (aligned top)
+color_frame = Frame(top_frame)
+color_frame.pack(side="left", anchor="n", padx=20)
+Label(color_frame, text="2. Colors per image (1–256):").pack(anchor="w")
+color_entry = Entry(color_frame, width=5)
 color_entry.insert(0, "9")
-color_entry.pack()
+color_entry.pack(anchor="w", pady=(0, 10))
 
-Button(root, text="Generate & Preview", command=run_generation, bg="#4CAF50", fg="white", padx=10, pady=5).pack(pady=20)
+# Generate button
+Button(root, text="🎨 Generate & Preview", command=run_generation, bg="#4CAF50", fg="white", padx=10, pady=5).pack(pady=10)
+
+# Export options
+export_frame = Frame(root)
+export_frame.pack(pady=10)
+Button(export_frame, text="💾 Save .ACT File", command=export_act, bg="#2196F3", fg="white", padx=10).pack(side="left", padx=10)
+Button(export_frame, text="🖼️ Export as PNG", command=export_png, bg="#9C27B0", fg="white", padx=10).pack(side="left", padx=10)
 
 root.mainloop()
+
